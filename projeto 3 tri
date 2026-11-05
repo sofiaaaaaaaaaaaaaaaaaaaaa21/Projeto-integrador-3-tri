@@ -1,0 +1,162 @@
+
+#include <WiFi.h>
+#include <ThingSpeak.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// =================================
+// CONFIGURAÇÕES DO WI-FI
+// =================================
+
+#include "secrets.h"
+
+// =================================
+// CONFIGURAÇÕES THINGSPEAK
+// =================================
+
+unsigned long channelID = 1234567;
+const char* writeAPIKey = "SUA_WRITE_API_KEY";
+
+WiFiClient client;
+
+// =================================
+// PINOS DOS SENSORES
+// =================================
+
+const int ldrA = 34;
+const int ldrB = 35;
+const int ldrC = 32;
+
+const int temperaturePin = 4;
+
+OneWire oneWire(temperaturePin);
+DallasTemperature temperatureSensor(&oneWire);
+
+// =================================
+// VARIÁVEIS
+// =================================
+
+unsigned long previousMillis = 0;
+const unsigned long interval = 20000;
+
+// =================================
+// CONECTAR AO WI-FI
+// =================================
+
+void connectWiFi() {
+  Serial.print("Conectando ao Wi-Fi");
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  int attempts = 0;
+
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWi-Fi conectado!");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nFalha na conexão Wi-Fi.");
+  }
+}
+
+// =================================
+// COLETAR E ENVIAR DADOS
+// =================================
+
+void collectData() {
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi desconectado.");
+    connectWiFi();
+    return;
+  }
+
+  // Leitura dos sensores LDR
+  int sensorA = analogRead(ldrA);
+  int sensorB = analogRead(ldrB);
+  int sensorC = analogRead(ldrC);
+
+  // Leitura da temperatura
+  temperatureSensor.requestTemperatures();
+
+  float waterTemperature =
+    temperatureSensor.getTempCByIndex(0);
+
+  // Verificar leitura válida
+  if (waterTemperature == DEVICE_DISCONNECTED_C) {
+    Serial.println("Erro no sensor de temperatura.");
+    return;
+  }
+
+  // Exibir resultados
+  Serial.println("==========================");
+  Serial.println("MONITORAMENTO SOLARIS");
+
+  Serial.print("Sensor A: ");
+  Serial.println(sensorA);
+
+  Serial.print("Sensor B: ");
+  Serial.println(sensorB);
+
+  Serial.print("Sensor C: ");
+  Serial.println(sensorC);
+
+  Serial.print("Temperatura da agua: ");
+  Serial.println(waterTemperature);
+
+  // Enviar os dados ao ThingSpeak
+  ThingSpeak.setField(1, sensorA);
+  ThingSpeak.setField(2, sensorB);
+  ThingSpeak.setField(3, sensorC);
+  ThingSpeak.setField(4, waterTemperature);
+
+  int response = ThingSpeak.writeFields(
+    channelID,
+    writeAPIKey
+  );
+
+  if (response == 200) {
+    Serial.println("Dados enviados com sucesso!");
+  } else {
+    Serial.print("Erro no envio: ");
+    Serial.println(response);
+  }
+}
+
+// =================================
+// SETUP
+// =================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  analogReadResolution(12);
+
+  temperatureSensor.begin();
+
+  connectWiFi();
+
+  ThingSpeak.begin(client);
+}
+
+// =================================
+// LOOP
+// =================================
+
+void loop() {
+
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= interval) {
+
+    previousMillis = currentMillis;
+
+    collectData();
+  }
+}
